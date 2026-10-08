@@ -1,8 +1,8 @@
-import { defineCommand } from 'citty'
+import { Command } from '@commander-js/extra-typings'
 import setKey from './set-key.js'
 import show from './show.js'
 
-export default defineCommand({
-  meta: { name: 'config', description: 'Manage configuration' },
-  subCommands: { 'show': show, 'set-key': setKey },
-})
+export default new Command('config')
+  .description('Manage configuration')
+  .addCommand(show)
+  .addCommand(setKey)

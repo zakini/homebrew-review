@@ -40,7 +40,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
-    "citty": "^0.2.2"
+    "@commander-js/extra-typings": "^15.0.0",
+    "commander": "^15.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

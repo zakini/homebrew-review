@@ -1,20 +1,12 @@
 import { confirm, intro, outro, select, text } from '@clack/prompts'
 import { exitIfCancelled } from './prompts.js'
 
-export const reviewArgs = {
-  model: {
-    type: 'string',
-    description: 'Model ID to use',
-    valueHint: 'id',
-  },
-  yes: {
-    type: 'boolean',
-    alias: 'y',
-    description: 'Skip the confirmation prompt',
-  },
-} as const
+interface ReviewOptions {
+  model?: string
+  yes?: true
+}
 
-export async function review(target: string | undefined, args: { model?: string | undefined, yes?: boolean | undefined }) {
+export async function review(target: string | undefined, options: ReviewOptions) {
   intro('brew review')
 
   const pkg = target
@@ -32,10 +24,10 @@ export async function review(target: string | undefined, args: { model?: string 
   }))
 
   if (action === 'remove') {
-    const ok = args.yes === true || exitIfCancelled(await confirm({ message: `Really remove ${pkg}?` }))
+    const ok = options.yes === true || exitIfCancelled(await confirm({ message: `Really remove ${pkg}?` }))
     outro(ok ? `Would remove ${pkg} (hello-world: nothing was uninstalled).` : 'Left unchanged.')
     return
   }
 
-  outro(`Keeping ${pkg}${args.model ? ` (model: ${args.model})` : ''}.`)
+  outro(`Keeping ${pkg}${options.model ? ` (model: ${options.model})` : ''}.`)
 }

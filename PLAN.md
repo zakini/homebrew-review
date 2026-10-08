@@ -58,7 +58,8 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
 
   Don't let current choices block this, but don't build it yet.
 - **Node version: pin to the latest LTS.** That's Node 24 today. Node 26 becomes LTS on 2026-10-28. From Node 27, Node ships one major a year (April release, October LTS). Bump yearly in the formula (`depends_on` and the `Formula["node@…"]` line), `engines`, and the version files. Check `brew info node@26` exists before switching.
-- **CLI libraries:** **citty** for argument parsing and subcommands, **@clack/prompts** for interactive prompts (confirm, select, masked password input for the API key).
+- **CLI libraries:** **commander** (with **@commander-js/extra-typings** for inferred option/argument types) for argument parsing and subcommands, **@clack/prompts** for interactive prompts (confirm, select, masked password input for the API key).
+  - citty was tried first and dropped: it treats the first positional as a subcommand name, so it can't support both `brew review <package>` and `brew review config …`, and it runs a parent command's `run` after its subcommand. commander dispatches to a subcommand only when the word matches one and otherwise passes it to the root action, keeps root options like `--model` working before a subcommand, and lists subcommands in root `--help`. yargs handled the same cases but has more dependencies, needs separate types, and prints full help on every error.
 
 ## Next task: scaffold the project
 
@@ -83,7 +84,7 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
    - **Builds use `tsc`**, compiling to `dist/`, via a `build` script. Don't rely on `prepare` to build on `npm install`, because `ignore-scripts` skips it. This is fine even though development uses tsx: strictest's `isolatedModules` keeps code to what both tools compile the same way. Moving the release build to an esbuild bundle comes later, with the GitHub Releases change (see Decisions).
 6. **ESLint (flat config):** combine `@eslint/js` recommended, `typescript-eslint` `recommendedTypeChecked`, and `@stylistic/eslint-plugin` `configs.recommended`. Use type information wherever a config supports it: `parserOptions.projectService` + `tsconfigRootDir: import.meta.dirname`, with `allowDefaultProject` for `eslint.config.js` if it sits outside the tsconfig. Ignore `dist/`.
 7. **Hello-world command** in `src/cli.ts`:
-   - A citty `defineCommand` with a few argument types: a positional, a string option, a boolean flag, and maybe a subcommand.
+   - A commander program with a few argument types: a positional, a string option, a boolean flag, and maybe a subcommand.
    - Clack prompts of a few kinds: `text`, `confirm`, `select`, and maybe `password`.
    - Handle `isCancel` and use `intro`/`outro`.
 8. Add `.gitignore` (`node_modules/`, `dist/`) and the `typecheck`/`lint`/`build`/`dev` scripts.
@@ -93,7 +94,7 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
 
 - **Create `Formula/brew-review.rb`.** There is currently **no formula and no `Formula/` directory**. An untracked `brew tap-new`/`brew create` stub was deleted on purpose because it was boilerplate: it called `./configure`, had an empty `license ""`, a `system "false"` test, and `deny_network_access!`, which would block `npm install`. Write it fresh using the formula sketch above, with a real `test do` block (e.g. `--help` output). Check how `std_npm_args` interacts with devDependencies when building from a local directory, and build explicitly since `ignore-scripts` skips `prepare`.
 - **Build the review flow:** gather installed packages and their details, find likely removal candidates (with AI help and streamed progress), present them, and confirm before uninstalling. Design this fresh against the [Goal](#goal), using the old script only for ideas.
-- **CLI design** (rough idea from discussion): `brew review` runs the loop, `brew review config set-key` and `brew review config show` manage the key, and `--model <id>` overrides the model.
+- **CLI design** (rough idea from discussion): `brew review` runs the loop, `brew review <package>` reviews a single package, `brew review config set-key` and `brew review config show` manage the key, and `--model <id>` overrides the model.
 - **Release flow (for now):** tag `vX.Y.Z`, bump the formula's `tag:`, push. The tap's CI (`brew test-bot`) runs on PRs.
 - **Later: switch to GitHub Releases with a bundled JS file** (see "Future distribution" under Decisions). Build it after the tool itself works.
 
