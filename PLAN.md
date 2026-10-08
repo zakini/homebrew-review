@@ -25,7 +25,8 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
 
 - **Language:** TypeScript on Node. No Ruby beyond the formula file.
 - **AI library:** the **Vercel AI SDK**, provider-agnostic. Do **not** use the Claude Agent SDK or other Claude-specific SDKs. The filesystem tools (read file, grep, glob) have to be written as AI SDK tools. Keep them read-only and scoped to sensible paths, because they search the user's home directory.
-- **Auth:** users supply their own API key. Respect the provider env vars first (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …), then fall back to a key stored by the CLI. Storage is undecided: a `0600` config file in `$XDG_CONFIG_HOME`/`~/.config/brew-review/`, and/or the macOS Keychain via the `security` CLI. Avoid native modules like `keytar`.
+- **Auth:** users supply their own API key. **Anthropic only for now**, even though the AI SDK is provider-agnostic. Use `ANTHROPIC_API_KEY` first, then fall back to a key stored by the CLI in a file (see [API key](#api-key)).
+  - The macOS Keychain (via the `security` CLI) was considered and not chosen for now. Against other code running as the user it protects no better than a file, since items made by `security` can be read back by anything that calls it. It's also macOS-only, so Linux would need a second path. Its real benefit is keeping the key out of backups and dotfile syncs. It could be added later without changing the CLI. Avoid native modules like `keytar` either way.
 - **One repo:** the TS source lives in this tap repo next to `Formula/`. No separate source repo and **no npm publishing**.
 - **Distribution:** a formula that builds from source at install time, pointed at this repo by git tag:
   ```ruby
@@ -58,10 +59,38 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
 
   Don't let current choices block this, but don't build it yet.
 - **Node version: pin to the latest LTS.** That's Node 24 today. Node 26 becomes LTS on 2026-10-28. From Node 27, Node ships one major a year (April release, October LTS). Bump yearly in the formula (`depends_on` and the `Formula["node@…"]` line), `engines`, and the version files. Check `brew info node@26` exists before switching.
+- **Follow Homebrew's precedents.** `brew review` should behave like a core `brew` command wherever a precedent exists: flag names and aliases, how package names resolve, `Error:`/`Warning:` messages, exit codes and `--help`. Where `brew` already does something (resolving names, checking what's installed, uninstalling), call `brew` and pass its output through rather than reimplementing it, so behaviour and messages match automatically.
+  - **Exception for now: output style.** The CLI keeps @clack/prompts' boxed `intro`/`outro` style. In future, it may be aligned with `brew`'s plain `==>` headings and `Warning:`/`Error:` lines.
 - **CLI libraries:** **commander** (with **@commander-js/extra-typings** for inferred option/argument types) for argument parsing and subcommands, **@clack/prompts** for interactive prompts (confirm, select, masked password input for the API key).
   - citty was tried first and dropped: it treats the first positional as a subcommand name, so it can't support both `brew review <package>` and `brew review config …`, and it runs a parent command's `run` after its subcommand. commander dispatches to a subcommand only when the word matches one and otherwise passes it to the root action, keeps root options like `--model` working before a subcommand, and lists subcommands in root `--help`. yargs handled the same cases but has more dependencies, needs separate types, and prints full help on every error.
 
-## Next task: scaffold the project
+## Next task: CLI and config
+
+Replace the hello-world command with the real CLI surface and API key handling. The review process itself is still to be designed (see [Later tasks](#later-tasks)), so `review` can stay a stub that prints which packages it would review.
+
+### Commands
+
+- **`brew review`** reviews every package the user chose to install:
+  - **Formulae installed on request** (`brew list --formula --installed-on-request`). Formulae installed only as dependencies are skipped.
+  - **All installed casks** (`brew list --cask`). Casks can depend on other casks, and Homebrew records which were installed on request in each cask's install receipt, but no public command exposes it: `--installed-on-request` refuses `--cask`, and `brew info --json=v2` doesn't include the field for casks. Cask dependencies are rare, so review every cask rather than reading the internal receipts.
+- **`brew review <package>`** reviews only that package. Accept fully qualified names (`homebrew/cask/docker`) as `brew` does. If it isn't installed, say so clearly and exit with an error.
+- **`--formula`/`--formulae` and `--cask`/`--casks`**, as in core `brew` commands, and they can't be combined:
+  - With no package, they limit the review to formulae or to casks.
+  - With a package, they pick which one to review when a formula and a cask share a name. Without either flag, match `brew`: treat the name as the formula and print its warning (`Treating docker as a formula. For the cask, use homebrew/cask/docker or specify the --cask flag. To silence this message, use the --formula flag.`, from `package_conflicts_message` in `Library/Homebrew/cli/named_args.rb`). Resolving the name through `brew` itself, passing its stderr through, should give this for free.
+- **`brew review config set-key`** stores the API key (see below).
+- **No `--model` or `--yes`/`-y` options**, and remove them from the hello-world code. Add them only once real use shows a need. The model is fixed in code.
+- **No `config show`**: there's nothing useful to show yet without printing the key.
+
+### API key
+
+- **`config set-key` only takes the key through a masked prompt.** Never accept it as an argument, so it can't end up in shell history.
+- **Check the key's format locally**, without an API request, wherever a key comes from (the prompt, `ANTHROPIC_API_KEY` or storage). Accept only Anthropic Console API keys (`sk-ant-api…`). Confirm the exact prefix against Anthropic's docs when implementing. Trim surrounding whitespace, and reject anything else with a message that names where the key came from and how to fix it.
+- **A format check can't tell whether the key works**, so handle rejection at run time too. When the API rejects the key (an authentication error, HTTP 401), stop the review and tell the user plainly that the key was rejected, which source it came from, and how to replace it (`brew review config set-key`, or update `ANTHROPIC_API_KEY`). Don't print the key.
+- **If `ANTHROPIC_API_KEY` is set when running `set-key`**, warn that the environment variable takes precedence over the stored key.
+- **Store the key in a file** under `$XDG_CONFIG_HOME/brew-review/` (default `~/.config/brew-review/`). Create the directory as `0700` and the file as `0600` when they're first written, rather than changing permissions afterwards, so the key is never readable by others even briefly.
+- **Store the key under its provider's name**, e.g. `{"anthropic": {"apiKey": "…"}}`, not as a bare key. Adding providers later then won't need existing files converting.
+
+## Done: scaffold the project
 
 1. **npm project** (`package.json`, `"type": "module"`, `bin: { "brew-review": "dist/cli.js" }`, `files: ["dist"]`).
 2. **Pin Node 24 in a way fnm respects:**
@@ -93,8 +122,12 @@ The bash and `jq` handling got awkward, which is part of why it's being rebuilt.
 ## Later tasks
 
 - **Create `Formula/brew-review.rb`.** There is currently **no formula and no `Formula/` directory**. An untracked `brew tap-new`/`brew create` stub was deleted on purpose because it was boilerplate: it called `./configure`, had an empty `license ""`, a `system "false"` test, and `deny_network_access!`, which would block `npm install`. Write it fresh using the formula sketch above, with a real `test do` block (e.g. `--help` output). Check how `std_npm_args` interacts with devDependencies when building from a local directory, and build explicitly since `ignore-scripts` skips `prepare`.
-- **Build the review flow:** gather installed packages and their details, find likely removal candidates (with AI help and streamed progress), present them, and confirm before uninstalling. Design this fresh against the [Goal](#goal), using the old script only for ideas.
-- **CLI design** (rough idea from discussion): `brew review` runs the loop, `brew review <package>` reviews a single package, `brew review config set-key` and `brew review config show` manage the key, and `--model <id>` overrides the model.
+- **Design and build the review process** (next to plan): for each package from [Commands](#commands), gather its details, judge whether it's still used (with AI help and streamed progress), and confirm before uninstalling. Design this fresh against the [Goal](#goal), using the old script only for ideas.
+- **Later: support other AI providers.** The AI SDK is already provider-agnostic, but the CLI only handles Anthropic. Supporting others needs:
+  - storing a key for each provider, and knowing which provider a key belongs to;
+  - each provider's env var (`OPENAI_API_KEY`, …) and its own local key-format check;
+  - a way to choose the active provider;
+  - possibly a way to choose the model for a provider. Undecided: only add it if a real need appears, in line with leaving out `--model` for now.
 - **Release flow (for now):** tag `vX.Y.Z`, bump the formula's `tag:`, push. The tap's CI (`brew test-bot`) runs on PRs.
 - **Later: switch to GitHub Releases with a bundled JS file** (see "Future distribution" under Decisions). Build it after the tool itself works.
 
