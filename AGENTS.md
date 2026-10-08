@@ -1,5 +1,17 @@
 # Agent instructions
 
+## Commits
+
+Keep commits small and atomic: one logical change per commit, such as a dependency swap, a refactor, or a feature built on them.
+
+- Commit each change when it's done, without waiting to be asked. Don't push unless asked.
+- Every commit should typecheck, lint and build on its own (`npm run typecheck`, `npm run lint`, `npm run build`).
+- When a change alters something `PLAN.md` describes, update `PLAN.md` in the same commit.
+- Only the agent the user is talking to commits. Subagents leave their changes uncommitted.
+- Never stash, reset, overwrite or commit uncommitted work that isn't part of your task, such as the user's own in-progress edits.
+- Only rewrite commits you made during the current task that haven't been pushed. Put other fixes in new commits.
+- If you can't follow these rules safely, stop and ask the user.
+
 ## Review every change
 
 Before telling the user a task is complete, dispatch a subagent to review the work. Tasks that change no files, such as answering a question, need no review.
