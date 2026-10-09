@@ -1,22 +1,8 @@
 # macOS test VM for sandboxed agents
 
-Sandboxed agents need to check `brew review`'s signal gathering against a real macOS Homebrew, including installing casks. This describes how they get one without being given open network access.
+How to build the macOS VM that sandboxed agents use to check signal gathering. Why it's built this way, and the rules it follows (no API key, no route to `api.anthropic.com`), are in [ADR 15](adr/0015-macos-test-vm.md).
 
-The agent doesn't run `brew review` itself in the VM. It changes the VM's state (installs or removes packages, opens apps, edits dotfiles) and runs the signals script from source (`npm run signals -- <package>`), which prints a package's gathered signals as JSON without building a model or loading a key. See "Split the code at the signals" and "Testing on real macOS" in [`PLAN.md`](../PLAN.md).
-
-**Status: proposed, not built yet.** Flags and their behaviour come from the help output of `tart`, `softnet` and `sbx` (Tart 2.40.1 and Softnet 0.24.0 from the `openai/tools` tap) and from the tap's formulae. Other claims haven't been checked on this machine, and the points under [To verify](#to-verify) haven't been tested.
-
-## Why a Tart VM
-
-- The agents run in `sbx` sandboxes, which are Linux microVMs running container images, and Docker has no macOS images. Homebrew on Linux can't install app casks or show anything that only happens on macOS.
-- macOS VMs on Apple Silicon run on Apple's Virtualization framework. [Tart](https://tart.run) drives it from a CLI and has base images with Homebrew already installed. It makes near-instant copy-on-write clones and is the only option considered with built-in egress filtering (Softnet).
-- Alternatives considered:
-  - **Lume:** MIT licensed and aimed at agents, but has no built-in network filtering.
-  - **UTM:** mainly a GUI and has no image registry.
-  - **Parallels:** paid and heavier than needed.
-  - **GitHub Actions macOS runners:** the most isolated option, since nothing runs on the Mac, but each test takes minutes and the sandbox would need to push to GitHub.
-- Tart 2.40.1 is under the [Functional Source License 1.1, Apache 2.0 future licence](https://github.com/openai/tart/blob/2.40.1/LICENSE) (`FSL-1.1-ALv2`). It allows any use except offering it commercially as a competing product or service, with no usage or CPU core limits. Each release becomes Apache 2.0 two years after it's made available. tart.run's licensing page still shows the core-based tiers of the old Cirrus Labs Fair Source licence, which the `openai/tart` licence doesn't have.
-- macOS allows at most two macOS VMs running at once per Mac, which caps parallel testing.
+**Status: proposed, not built yet.** Flags and their behaviour come from the help output of `tart`, `softnet` and `sbx` (Tart 2.40.1 and Softnet 0.24.0 from the `openai/tools` tap) and from the tap's formulae. Other claims haven't been checked on this machine, and the points under [To verify](#to-verify) haven't been tested. tart.run's licensing page still shows the core-based tiers of the old Cirrus Labs Fair Source licence, which the `openai/tart` licence doesn't have.
 
 ## Overview
 
@@ -74,7 +60,7 @@ The VM sets `https_proxy` and `http_proxy`, plus the uppercase forms, to a proxy
 
 Anything that ignores these variables can't reach the network at all, which fails safe but can break things:
 
-- **Node's built-in `fetch`**, which the AI SDK uses, only follows them with `NODE_USE_ENV_PROXY=1` or `--use-env-proxy`. `brew` filters `NODE_USE_ENV_PROXY` out, so the formula's wrapper script sets it (see `PLAN.md`). The signals script makes no API calls, so this doesn't matter for testing in the VM.
+- **Node's built-in `fetch`**, which the AI SDK uses, only follows them with `NODE_USE_ENV_PROXY=1` or `--use-env-proxy`. `brew` filters `NODE_USE_ENV_PROXY` out, so the formula's wrapper script sets it (see [ADR 3](adr/0003-distribute-as-source-built-formula.md)). The signals script makes no API calls, so this doesn't matter for testing in the VM.
 - **macOS system services** use the system proxy settings (`networksetup`), not environment variables.
 
 The proxy needs to:
@@ -126,11 +112,7 @@ Without this layer, a fair compromise is to check `sudo lsof -nP -iTCP -sTCP:LIS
 - The code under test reaches the VM by `rsync` over SSH, or by mounting it read-only with `tart run --dir=<path>:ro` and copying it somewhere writable in the VM, since `npm ci` writes `node_modules` into the project.
 - Output from commands in the VM, such as installer messages, comes back to the agent and should be treated as untrusted input.
 
-## No API key in the VM
-
-- **The VM has no Anthropic key and no route to `api.anthropic.com`.** The agent has `sudo` in the VM (cask installs need it), so restricting which commands it can run wouldn't hold. Controlling what's in the VM and what it can reach does. If the agent runs `brew review` anyway, it has no key to enter at the `set-key` prompt and couldn't reach the API with one, and anything it removes is in a throwaway clone.
-- **The signals script needs no terminal and no prompts,** so plain `ssh` is enough.
-- **Real AI runs happen elsewhere:** the judging code is tested with mock models in the sandbox, and against the real model in the evals, never from the VM. Signals captured in the VM can become test fixtures or eval cases, after the user has checked them.
+- The signals script needs no terminal and no prompts, so plain `ssh` is enough.
 
 ## Setup
 
